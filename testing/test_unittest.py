@@ -1438,3 +1438,42 @@ def test_do_cleanups_on_teardown_failure(pytester: Pytester) -> None:
     passed, skipped, failed = reprec.countoutcomes()
     assert failed == 2
     assert passed == 1
+
+
+def test_unittest_fixtures_are_private(pytester: Pytester) -> None:
+    """Test that unittest fixtures have private names and are hidden without -v flag.
+    
+    Issue: Starting v6.2.0, unittest setUpClass fixtures were no longer "private"
+    (their names didn't start with underscore), causing them to show up in 
+    --fixtures output and breaking CI scripts that expected them to be private.
+    """
+    pytester.makepyfile(
+        """
+        import unittest
+
+        class Tests(unittest.TestCase):
+            @classmethod
+            def setUpClass(cls):
+                pass
+                
+            def setup_method(self, method):
+                pass
+
+            def test_1(self):
+                pass
+        """
+    )
+    
+    # Without -v flag, private fixtures (starting with _) should not be shown
+    result = pytester.runpytest("--fixtures")
+    result.stdout.no_fnmatch_line("*unittest_setUpClass_fixture_Tests*")  # Old public name should not appear
+    result.stdout.no_fnmatch_line("*_unittest_setUpClass_fixture_Tests*")  # New private name should not appear without -v
+    result.stdout.no_fnmatch_line("*unittest_setup_method_fixture_Tests*")  # Old public name should not appear
+    result.stdout.no_fnmatch_line("*_unittest_setup_method_fixture_Tests*")  # New private name should not appear without -v
+    
+    # With -v flag, private fixtures should be shown
+    result = pytester.runpytest("--fixtures", "-v")
+    result.stdout.fnmatch_lines([
+        "*_unittest_setUpClass_fixture_Tests*",
+        "*_unittest_setup_method_fixture_Tests*"
+    ])
